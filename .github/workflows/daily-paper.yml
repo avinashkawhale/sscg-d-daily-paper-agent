@@ -7,9 +7,13 @@ on:
   schedule:
     - cron: "30 0 * * *"
 
+permissions:
+  contents: read
+
 jobs:
   generate-daily-paper:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -25,18 +29,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Check API Secret Configuration
+      - name: Check API Secrets
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
         run: |
-          python -c "import os; print('GEMINI_API_KEY:', 'AVAILABLE' if os.getenv('GEMINI_API_KEY') else 'MISSING')"
-          python -c "import os; print('FIREBASE_SERVICE_ACCOUNT_JSON:', 'AVAILABLE' if os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON') else 'MISSING')"
+          python -c "import os; print('Gemini Secret:', 'AVAILABLE' if os.getenv('GEMINI_API_KEY') else 'MISSING')"
+          python -c "import os; print('Firebase Secret:', 'AVAILABLE' if os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON') else 'MISSING')"
 
       - name: Generate SSC GD Daily Paper
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           GEMINI_MODEL: gemini-3.8-flash
+          EXPECTED_FIREBASE_PROJECT_ID: maharashtra-police-exam
         run: |
           python agent.py
