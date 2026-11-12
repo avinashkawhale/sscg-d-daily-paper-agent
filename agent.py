@@ -1,96 +1,110 @@
 
-import os
-import re
-import json
-import time
-import hashlib
-from datetime import datetime, timezone, timedelta
 
-import firebase_admin
-from firebase_admin import credentials, firestore
+def save_draft(db, questions):
+    now = datetime.now(IST)
+    date_key = now.strftime("%Y%m%d")
+    paper_id = f"ssc_gd_daily_{date_key}"
 
-from google import genai
-from google.genai import types
-
-# =========================================================
-# SSC GD DAILY AI PAPER AGENT
-# 80 MCQs | Bilingual | Firebase Firestore Draft
-# =========================================================
-
-IST = timezone(timedelta(hours=5, minutes=30))
-
-MODEL_NAME = os.getenv(
-    "GEMINI_MODEL",
-    "gemini-3.8-flash"
-)
-
-EXPECTED_FIREBASE_PROJECT_ID = os.getenv(
-    "EXPECTED_FIREBASE_PROJECT_ID",
-    "maharashtra-police-exam"
-)
-
-QUESTION_MARKS = 2
-NEGATIVE_MARKS = 0.25
-EXAM_DURATION_MINUTES = 60
-
-SECTIONS = [
-    {
-        "name": "Reasoning",
-        "count": 20,
-        "instruction": (
-            "General Intelligence and Reasoning, "
-            "analogies, series, coding-decoding, "
-            "classification, spatial reasoning and logic"
+    section_counts = {}
+    for question in questions:
+        section_counts[question["section"]] = (
+            section_counts.get(question["section"], 0) + 1
         )
-    },
-    {
-        "name": "General Knowledge",
-        "count": 20,
-        "instruction": (
-            "Indian General Knowledge and General Awareness, "
-            "Indian history, geography, polity, science, "
-            "culture, economy and important current affairs"
-        )
-    },
-    {
-        "name": "Mathematics",
-        "count": 20,
-        "instruction": (
-            "Elementary Mathematics, number system, "
-            "percentage, ratio, average, profit and loss, "
-            "time and work, time and distance, "
-            "simple interest and mensuration"
-        )
-    },
-    {
-        "name": "Hindi",
-        "count": 20,
-        "instruction": (
-            "Hindi language and grammar, vocabulary, "
-            "synonyms, antonyms, idioms, spelling, "
-            "sentence correction and comprehension"
-        )
+
+    paper = {
+        "id": paper_id,
+        "title": f"SSC GD Daily Practice Paper - {now.strftime('%d-%m-%Y')}",
+        "examType": "SSC GD",
+        "date": date_key,
+        "status": "draft",
+        "approvalStatus": "pending",
+        "createdBy": "AI_DAILY_PAPER_AGENT",
+        "createdAt": firestore.SERVER_TIMESTAMP,
+        "totalQuestions": len(questions),
+        "totalMarks": 160,
+        "duration": 60,
+        "sections": section_counts,
+        "questions": questions,
+        "schemaVersion": 1,
+        "generationModel": MODEL_NAME,
     }
-]
 
-# =========================================================
-# 1. INITIALIZE SERVICES
-# =========================================================
+    doc_ref = db.collection("aiPaperDrafts").document(paper_id)
 
-def initialize_services():
-
-    print("Initializing services...")
-
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    firebase_json = os.environ.get(
-        "FIREBASE_SERVICE_ACCOUNT_JSON"
-    )
-
-    if not gemini_key:
+    # Avoid overwriting an existing daily draft.
+    try:
+        doc_ref.create(paper)
+    except Exception as exc:
+        # Do not silently overwrite or duplicate an existing draft.
         raise RuntimeError(
-            "GEMINI_API_KEY GitHub Secret is missing."
+            f"Could not create Firestore draft {paper_id}. "
+            "It may already exist, or Firestore rejected the write. "
+            f"Details: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    log(f"FIRESTORE_DRAFT_SAVED: {paper_id}")
+    log(f"TOTAL_QUESTIONS_SAVED: {len(questions)}")
+    log("STATUS: draft")
+    log("APPROVAL_STATUS: pending")
+    return paper_id
+
+
+def main():
+    log("=" * 58)
+    log("SSC GD DAILY PAPER AGENT")
+    log("=" * 58)
+
+    gemini, db = initialize_services()
+    all_questions = []
+
+    for section in SECTIONS:
+        log(f"STARTING_SECTION: {section['name']}")
+        section_questions = generate_section(gemini, section)
+        all_questions.extend(section_questions)
+
+    if len(all_questions) != 80:
+        raise ValueError(
+            f"Expected exactly 80 questions; got {len(all_questions)}."
         )
 
-    if not firebase_json:
-        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON GitHub Secret is missing.")
+    expected_sections = {
+        "Reasoning": 20,
+        "General Knowledge": 20,
+        "Mathematics": 20,
+        "Hindi": 20,
+    }
+    actual_sections = {}
+    for question in all_questions:
+        name = question["section"]
+        actual_sections[name] = actual_sections.get(name, 0) + 1
 
+    if actual_sections != expected_sections:
+        raise ValueError(
+            f"Section count mismatch. Expected {expected_sections}; "
+            f"got {actual_sections}."
+        )
+
+    check_duplicates(all_questions)
+    random.shuffle(all_questions)
+
+    paper_id = save_draft(db, all_questions)
+
+    log("=" * 58)
+    log("DAILY PAPER GENERATION SUCCESSFUL")
+    log(f"PAPER_ID: {paper_id}")
+    log("TOTAL_QUESTIONS: 80")
+    log("ADMIN_APPROVAL_REQUIRED: YES")
+    log("PUBLISHED: NO")
+    log("=" * 58)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:
+        log("=" * 58)
+        log("DAILY PAPER GENERATION FAILED")
+        log(f"ERROR_TYPE: {type(exc).__name__}")
+        log(f"ERROR_DETAILS: {exc}")
+        log("=" * 58)
+        sys.exit(1)
