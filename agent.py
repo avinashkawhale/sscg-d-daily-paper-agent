@@ -92,5 +92,5 @@ def initialize_services():
         )
 
     if not firebase_json:
-        raise RuntimeError(
-            "FIREBASE_SERVICE_ACCOUNT_JSON GitHub Secret is missing."
+        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON GitHub Secret is missing.")
+
