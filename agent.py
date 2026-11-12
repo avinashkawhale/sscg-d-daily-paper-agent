@@ -1,4 +1,5 @@
-
+def log(message):
+    print(message, flush=True)
 
 def save_draft(db, questions):
     now = datetime.now(IST)
